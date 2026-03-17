@@ -126,7 +126,7 @@ const CONFIG = {
   <div class="topbar">
     <div>
       <div style="font-size:19px;font-weight:700;letter-spacing:-.01em">Sauce Shop</div>
-      <div style="font-size:13px;color:#888;margin-top:1px">Pallet Label System V3</div>
+      <div style="font-size:13px;color:#888;margin-top:1px">Pallet Label System <span style="font-size:11px;background:#e8e7e4;padding:2px 7px;border-radius:99px;margin-left:4px">v1.4</span></div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <div class="user-bar"><span id="user-name"></span><button onclick="signOut()">Sign out</button></div>
@@ -577,14 +577,24 @@ async function makeRecord(data){
 function setBusy(on){['btn-gp','btn-aq'].forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=on;});}
 
 async function generateAndPrint(){
-  var d=collectForm();if(!validate(d))return;
+  console.log('generateAndPrint called');
+  var d=collectForm();
+  console.log('form data:', JSON.stringify(d));
+  if(!validate(d))return;
   setBusy(true);
-  var rec=await makeRecord(d);
-  await saveRecord(rec);
-  clearForm();
-  doPrint([rec]);
+  try {
+    var rec=await makeRecord(d);
+    console.log('record made:', JSON.stringify(rec));
+    await saveRecord(rec);
+    clearForm();
+    console.log('calling doPrint');
+    doPrint([rec]);
+  } catch(err) {
+    console.error('generateAndPrint error:', err);
+    toast('Error: '+err.message, true);
+    alert('Error: '+err.message);
+  }
   setBusy(false);
-  toast('Label generated & printing');
 }
 
 async function addToQueue(){
@@ -671,6 +681,19 @@ function updateSettingsForm(){document.getElementById('s-prefix').value=cfg.pref
 function toast(msg,isErr){var t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(isErr?' error':'');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show');},isErr?5000:2500);}
 
 function doPrint(recs){
+  // Debug — confirm function is being called
+  console.log('doPrint called with', recs.length, 'records');
+  console.log('jspdf available:', typeof window.jspdf);
+  console.log('records:', JSON.stringify(recs));
+
+  if(!window.jspdf){
+    toast('PDF library not loaded — check your internet connection and reload the page', true);
+    alert('PDF library (jsPDF) failed to load. Please refresh the page and try again. If this keeps happening, your network may be blocking cdn.jsdelivr.net');
+    return;
+  }
+
+  try {
+
   // Generate PDF using jsPDF
   var doc = new window.jspdf.jsPDF({
     orientation: 'portrait',
@@ -784,6 +807,12 @@ function doPrint(recs){
   var filename = 'pallet-label-'+(recs.length===1?recs[0].sku+'-'+recs[0].batch:'batch-'+recs.length)+'.pdf';
   doc.save(filename);
   toast('PDF downloaded — '+(recs.length===1?'1 label':recs.length+' labels'));
+
+  } catch(err) {
+    console.error('PDF generation error:', err);
+    toast('PDF error: '+err.message, true);
+    alert('PDF generation failed: '+err.message+'\n\nCheck the browser console (F12) for details.');
+  }
 }
 
 // ── Code 128C barcode data ────────────────────────────────────────────────────
