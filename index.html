@@ -126,7 +126,7 @@ const CONFIG = {
   <div class="topbar">
     <div>
       <div style="font-size:19px;font-weight:700;letter-spacing:-.01em">Sauce Shop</div>
-      <div style="font-size:13px;color:#888;margin-top:1px">Pallet Label System <span style="font-size:11px;background:#e8e7e4;padding:2px 7px;border-radius:99px;margin-left:4px">v1.5</span></div>
+      <div style="font-size:13px;color:#888;margin-top:1px">Pallet Label System <span style="font-size:11px;background:#e8e7e4;padding:2px 7px;border-radius:99px;margin-left:4px">v1.6</span></div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <div class="user-bar"><span id="user-name"></span><button onclick="signOut()">Sign out</button></div>
@@ -171,9 +171,15 @@ const CONFIG = {
         </div>
       </div>
 
-      <div class="field">
-        <label>Cases on pallet <span style="color:#aaa;font-weight:400">(overrides product default)</span></label>
-        <input id="f-cases" type="number" placeholder="Leave blank to use product default">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label>Cases on pallet <span style="color:#aaa;font-weight:400">(overrides default)</span></label>
+          <input id="f-cases" type="number" placeholder="Leave blank to use product default">
+        </div>
+        <div class="field">
+          <label>Number of pallet labels *</label>
+          <input id="f-pallets" type="number" min="1" value="1" placeholder="1">
+        </div>
       </div>
 
       <div class="actions">
@@ -546,16 +552,18 @@ function collectForm(){
   var sku=document.getElementById('f-sku').value;
   var p=products[sku]||{};
   var casesOverride=document.getElementById('f-cases').value;
+  var numPallets=parseInt(document.getElementById('f-pallets').value)||1;
   return{
     sku:sku,
     name:p.name||sku,
     batch:document.getElementById('f-batch').value.trim(),
     bbe:document.getElementById('f-bbe').value,
-    cases:casesOverride||p.casesOnPallet||'',
-    caseWeight:p.caseWeight||'',
-    unitsPerCase:p.unitsPerCase||'',
-    tuc:p.tuc||'',
-    info:p.info||''
+    cases:casesOverride||String(p.casesOnPallet)||'',
+    caseWeight:String(p.caseWeight)||'',
+    unitsPerCase:String(p.unitsPerCase)||'',
+    tuc:String(p.tuc)||'',
+    info:String(p.info)||'',
+    numPallets:numPallets
   };
 }
 function clearForm(){
@@ -563,6 +571,7 @@ function clearForm(){
   document.getElementById('f-batch').value='';
   document.getElementById('f-bbe').value='';
   document.getElementById('f-cases').value='';
+  document.getElementById('f-pallets').value='1';
   document.getElementById('product-preview').textContent='Product details will appear here once you select a SKU.';
 }
 function validate(d){
@@ -577,18 +586,20 @@ async function makeRecord(data){
 function setBusy(on){['btn-gp','btn-aq'].forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=on;});}
 
 async function generateAndPrint(){
-  console.log('generateAndPrint called');
   var d=collectForm();
-  console.log('form data:', JSON.stringify(d));
   if(!validate(d))return;
+  var numPallets=d.numPallets||1;
   setBusy(true);
   try {
-    var rec=await makeRecord(d);
-    console.log('record made:', JSON.stringify(rec));
-    await saveRecord(rec);
+    var recs=[];
+    for(var i=0;i<numPallets;i++){
+      var rec=await makeRecord(d);
+      await saveRecord(rec);
+      recs.push(rec);
+    }
     clearForm();
-    console.log('calling doPrint');
-    doPrint([rec]);
+    doPrint(recs);
+    toast('Generated '+numPallets+' label'+(numPallets>1?'s':'')+' — PDF downloading');
   } catch(err) {
     console.error('generateAndPrint error:', err);
     toast('Error: '+err.message, true);
@@ -599,14 +610,17 @@ async function generateAndPrint(){
 
 async function addToQueue(){
   var d=collectForm();if(!validate(d))return;
+  var numPallets=d.numPallets||1;
   setBusy(true);
-  var rec=await makeRecord(d);
-  await saveRecord(rec);
-  queue.push(rec);
+  for(var i=0;i<numPallets;i++){
+    var rec=await makeRecord(d);
+    await saveRecord(rec);
+    queue.push(rec);
+  }
   clearForm();
   renderQueueUI();
   setBusy(false);
-  toast('Added to queue');
+  toast('Added '+numPallets+' pallet'+(numPallets>1?'s':'')+' to queue');
 }
 
 function renderQueueUI(){
@@ -713,17 +727,18 @@ function doPrint(recs){
     var W = 148; // A5 width mm
     var y = 0;
 
-    // Header — black bar
-    doc.setFillColor(0,0,0);
-    doc.rect(0, y, W, 16, 'F');
-    doc.setTextColor(255,255,255);
+    // Header — white background, black text
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.5);
+    doc.rect(0, y, W, 18, 'S');
+    doc.setTextColor(0,0,0);
     doc.setFont('helvetica','bold');
-    doc.setFontSize(11);
+    doc.setFontSize(12);
     doc.text('SAUCE SHOP PALLET LABEL', W/2, y+7, {align:'center'});
     doc.setFontSize(7);
     doc.setFont('helvetica','normal');
-    doc.text('UNIT 2/3 CENTURION WAY, NOTTINGHAM, NG2 1RW', W/2, y+12, {align:'center'});
-    y += 16;
+    doc.text('Sauce Shop Address: Unit 2/3 Centurion Way, Nottingham, NG2 1RW', W/2, y+13, {align:'center'});
+    y += 18;
 
     // Helper to draw a section divider line
     function divider(yy){ doc.setDrawColor(0); doc.line(0, yy, W, yy); }
@@ -766,12 +781,14 @@ function doPrint(recs){
     value(r.tuc||'-', W/2+2, y+9);
     y += 14;
 
-    // TUC barcode (small)
+    // TUC barcode (small) with TUC number underneath
     if(r.tuc){
       divider(y);
       var tucBarcode = getBarcodeData(r.tuc);
       drawBarcode(doc, tucBarcode, W/2, y+2, 90, 8, true);
-      y += 14;
+      doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+      doc.text('TUC: '+r.tuc, W/2, y+12, {align:'center'});
+      y += 16;
     }
 
     // SKU + BBE large
