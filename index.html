@@ -749,20 +749,15 @@ function doPrint(recs){
     area.appendChild(div);
   });
 
-  // Print via hidden iframe — avoids popup blocker on GitHub Pages
-  var existing=document.getElementById('print-iframe');
-  if(existing)existing.parentNode.removeChild(existing);
-
-  var iframe=document.createElement('iframe');
-  iframe.id='print-iframe';
-  iframe.style.cssText='position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;visibility:hidden';
-  document.body.appendChild(iframe);
-
+  // Build a data URL and navigate to it in a new tab — user presses Ctrl+P
   var labelCSS=
     '*{box-sizing:border-box;margin:0;padding:0}'+
-    'body{background:#fff;font-family:Arial,Helvetica,sans-serif}'+
-    '.lpage{width:148mm;min-height:210mm;border:1px solid #000;margin:0 auto;background:#fff;page-break-after:always;display:flex;flex-direction:column}'+
-    '.lpage:last-child{page-break-after:avoid}'+
+    'body{background:#f0f0f0;font-family:Arial,Helvetica,sans-serif;padding:10mm}'+
+    '@media print{body{background:#fff;padding:0}}'+
+    '.noprint{background:#1c1c1a;color:#fff;font-family:Arial,sans-serif;font-size:13px;padding:12px 20px;margin-bottom:8mm;border-radius:6px;display:flex;align-items:center;gap:12px;justify-content:space-between}'+
+    '@media print{.noprint{display:none!important}}'+
+    '.lpage{width:148mm;min-height:210mm;border:1px solid #000;margin:0 auto 8mm;background:#fff;page-break-after:always;display:flex;flex-direction:column}'+
+    '.lpage:last-child{page-break-after:avoid;margin-bottom:0}'+
     '.l-header{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;color:#fff!important;text-align:center;padding:4mm 5mm 3mm}'+
     '.l-title{font-size:14pt;font-weight:bold;letter-spacing:.05em}'+
     '.l-addr{font-size:8pt;margin-top:1mm}'+
@@ -780,19 +775,23 @@ function doPrint(recs){
     '.val{font-size:10pt;font-weight:bold;color:#000}'+
     '.val.big{font-size:28pt;font-weight:900}';
 
-  var doc=iframe.contentDocument||iframe.contentWindow.document;
-  doc.open();
-  doc.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Sauce Shop Pallet Label</title><style>'+labelCSS+'</style></head><body>'+area.innerHTML+'</body></html>');
-  doc.close();
+  var count=recs.length;
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Sauce Shop Pallet Label</title><style>'+labelCSS+'</style></head><body>';
+  html+='<div class="noprint"><span>'+count+' label'+(count!==1?'s':'')+' ready — press <strong>Ctrl+P</strong> (or Cmd+P on Mac) to print, then close this tab</span><button onclick="window.print()" style="background:#fff;color:#1c1c1a;border:none;border-radius:5px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">Print now</button></div>';
+  html+=area.innerHTML;
+  html+='</body></html>';
 
-  setTimeout(function(){
-    try{
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    }catch(e){
-      toast('Print error: '+e.message,true);
-    }
-  },600);
+  // Encode as data URL and open in new tab
+  var encoded='data:text/html;charset=utf-8,'+encodeURIComponent(html);
+  var tab=window.open(encoded,'_blank');
+  if(!tab){
+    // If popup still blocked, offer download instead
+    toast('Pop-ups blocked — downloading label as HTML file instead',true);
+    var a=document.createElement('a');
+    a.href=encoded;
+    a.download='sauce-shop-label-'+new Date().toISOString().slice(0,10)+'.html';
+    a.click();
+  }
 }
 </script>
 </body>
