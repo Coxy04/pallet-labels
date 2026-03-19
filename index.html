@@ -126,12 +126,13 @@ const CONFIG = {
   <div class="topbar">
     <div>
       <div style="font-size:19px;font-weight:700;letter-spacing:-.01em">Sauce Shop</div>
-      <div style="font-size:13px;color:#888;margin-top:1px">Pallet Label System <span style="font-size:11px;background:#e8e7e4;padding:2px 7px;border-radius:99px;margin-left:4px">v1.8</span></div>
+      <div style="font-size:13px;color:#888;margin-top:1px">Pallet Label System <span style="font-size:11px;background:#e8e7e4;padding:2px 7px;border-radius:99px;margin-left:4px">v1.9</span></div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <div class="user-bar"><span id="user-name"></span><button onclick="signOut()">Sign out</button></div>
       <div class="nav">
         <button class="active" onclick="showPage('generate')">Generate</button>
+        <button onclick="showPage('verify')">Verify</button>
         <button onclick="showPage('history')">History</button>
         <button onclick="showPage('settings')">Settings</button>
       </div>
@@ -197,6 +198,57 @@ const CONFIG = {
         </div>
       </div>
       <div class="tbl-wrap"><div id="queue-body"></div></div>
+    </div>
+  </div>
+
+  <!-- VERIFY PAGE -->
+  <div id="page-verify" style="display:none">
+
+    <div class="card" id="verify-main">
+      <div class="sec-label">TUC barcode verification</div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label>Select product to verify *</label>
+        <select id="v-sku" onchange="onVerifySKUChange()">
+          <option value="">— select a product —</option>
+        </select>
+      </div>
+
+      <div id="v-product-info" style="display:none;margin-bottom:16px">
+        <div class="product-preview" id="v-product-preview"></div>
+        <div style="margin-top:10px;font-size:13px;color:#555">
+          Expected TUC: <strong id="v-expected-tuc" style="font-family:'Courier New',monospace;font-size:14px"></strong>
+        </div>
+      </div>
+
+      <div id="v-scan-area" style="display:none">
+        <div style="font-size:13px;color:#555;margin-bottom:8px">Scan the barcode on the product now — make sure this field is focused:</div>
+        <input id="v-scan-input"
+          type="text"
+          placeholder="Waiting for scan…"
+          autocomplete="off"
+          style="font-family:'Courier New',monospace;font-size:16px;height:48px;letter-spacing:.05em"
+          oninput="onScanInput()"
+          onkeydown="onScanKeydown(event)">
+        <div style="font-size:12px;color:#aaa;margin-top:6px">The scanner submits automatically — you don't need to press Enter.</div>
+      </div>
+    </div>
+
+    <!-- Result flash panel -->
+    <div id="v-result" style="display:none;border-radius:12px;padding:2.5rem;text-align:center;margin-bottom:1rem;transition:background .2s">
+      <div id="v-result-icon" style="font-size:56px;margin-bottom:12px"></div>
+      <div id="v-result-title" style="font-size:22px;font-weight:700;margin-bottom:6px"></div>
+      <div id="v-result-detail" style="font-size:14px;opacity:.85;line-height:1.6"></div>
+      <button class="btn" style="margin-top:1.25rem" onclick="resetVerify()">Scan another</button>
+    </div>
+
+    <!-- Scan log -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+        <span style="font-weight:600;font-size:14px">Today's scan log <span class="badge" id="v-log-count">0</span></span>
+        <button class="btn" onclick="loadVerifications()">Refresh</button>
+      </div>
+      <div class="tbl-wrap"><div id="v-log-body"><div class="empty">No scans yet today</div></div></div>
     </div>
   </div>
 
@@ -303,7 +355,7 @@ var allRecords=[], queue=[], selectedIds=new Set();
 var products={}; // keyed by SKU
 var cfg={prefix:'5012345',ext:3};
 var serialRef=1;
-var siteId=null, labelsListId=null, counterListId=null, counterItemId=null, productsListId=null;
+var siteId=null, labelsListId=null, counterListId=null, counterItemId=null, productsListId=null, verificationsListId=null;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load',function(){
@@ -391,11 +443,13 @@ async function resolveSiteAndLists(){
       if(l.name===CONFIG.labelsListName)labelsListId=l.id;
       if(l.name===CONFIG.counterListName)counterListId=l.id;
       if(l.name===CONFIG.productsListName)productsListId=l.id;
+      if(l.name===CONFIG.verificationsListName)verificationsListId=l.id;
     });
     var missing=[];
     if(!labelsListId)missing.push(CONFIG.labelsListName);
     if(!counterListId)missing.push(CONFIG.counterListName);
     if(!productsListId)missing.push(CONFIG.productsListName);
+    if(!verificationsListId)missing.push(CONFIG.verificationsListName);
     if(missing.length)throw new Error('Lists not found: '+missing.join(', '));
     document.getElementById('conn-status').innerHTML='<span style="color:green">✓ Connected — all lists found.</span>';
   }catch(e){
@@ -694,10 +748,11 @@ function fmtBBE(bbe){
 }
 function fmtDate(iso){return new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});}
 function showPage(p){
-  ['generate','history','settings'].forEach(function(n){document.getElementById('page-'+n).style.display=n===p?'':'none';});
-  document.querySelectorAll('.nav button').forEach(function(b,i){b.classList.toggle('active',['generate','history','settings'][i]===p);});
+  ['generate','verify','history','settings'].forEach(function(n){document.getElementById('page-'+n).style.display=n===p?'':'none';});
+  document.querySelectorAll('.nav button').forEach(function(b,i){b.classList.toggle('active',['generate','verify','history','settings'][i]===p);});
   if(p==='history')loadHistory();
   if(p==='settings')updateSettingsForm();
+  if(p==='verify'){populateVerifySKU();loadVerifications();setTimeout(function(){var el=document.getElementById('v-scan-input');if(el&&el.style.display!=='none')el.focus();},300);}
 }
 function updateSettingsForm(){document.getElementById('s-prefix').value=cfg.prefix;document.getElementById('s-ext').value=cfg.ext;}
 function toast(msg,isErr){var t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(isErr?' error':'');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show');},isErr?5000:2500);}
@@ -843,6 +898,194 @@ function doPrint(recs){
     toast('PDF error: '+err.message, true);
     alert('PDF generation failed: '+err.message+'\n\nCheck the browser console (F12) for details.');
   }
+}
+
+// ── Verify functions ─────────────────────────────────────────────────────────
+var verifyLogs = [];
+
+function populateVerifySKU(){
+  var sel = document.getElementById('v-sku');
+  var current = sel.value;
+  sel.innerHTML = '<option value="">— select a product —</option>';
+  Object.keys(products).sort().forEach(function(sku){
+    var opt = document.createElement('option');
+    opt.value = sku;
+    opt.textContent = sku + ' — ' + products[sku].name;
+    sel.appendChild(opt);
+  });
+  if(current) sel.value = current;
+}
+
+function onVerifySKUChange(){
+  var sku = document.getElementById('v-sku').value;
+  var p = products[sku];
+  var infoEl = document.getElementById('v-product-info');
+  var scanEl = document.getElementById('v-scan-area');
+  var resultEl = document.getElementById('v-result');
+  resultEl.style.display = 'none';
+  if(!p || !sku){
+    infoEl.style.display = 'none';
+    scanEl.style.display = 'none';
+    return;
+  }
+  document.getElementById('v-product-preview').innerHTML =
+    '<strong>'+p.name+'</strong><br>'+
+    'SKU: <strong>'+sku+'</strong> &nbsp;·&nbsp; '+
+    'TUC: <strong style="font-family:'Courier New',monospace">'+p.tuc+'</strong>';
+  document.getElementById('v-expected-tuc').textContent = p.tuc || 'Not set';
+  infoEl.style.display = '';
+  scanEl.style.display = '';
+  document.getElementById('v-scan-input').value = '';
+  document.getElementById('v-scan-input').focus();
+}
+
+function onScanKeydown(e){
+  // Scanners typically send Enter after the barcode
+  if(e.key === 'Enter') processVerifyScan();
+}
+
+function onScanInput(){
+  // Some scanners don't send Enter — process when input stops changing
+  var inp = document.getElementById('v-scan-input');
+  clearTimeout(inp._scanTimer);
+  inp._scanTimer = setTimeout(function(){
+    if(inp.value.length > 4) processVerifyScan();
+  }, 300);
+}
+
+function processVerifyScan(){
+  var sku = document.getElementById('v-sku').value;
+  var p = products[sku];
+  if(!p || !sku){ alert('Please select a product first'); return; }
+
+  var scanned = document.getElementById('v-scan-input').value.trim().replace(/\D/g,'');
+  var expected = String(p.tuc || '').replace(/\D/g,'');
+
+  if(!scanned) return;
+
+  var pass = scanned === expected;
+  showVerifyResult(pass, sku, p, scanned, expected);
+  saveVerification(sku, p, scanned, expected, pass);
+  document.getElementById('v-scan-input').value = '';
+}
+
+function showVerifyResult(pass, sku, p, scanned, expected){
+  var resultEl = document.getElementById('v-result');
+  var mainEl = document.getElementById('verify-main');
+
+  resultEl.style.display = '';
+  resultEl.style.background = pass ? '#d4edda' : '#f8d7da';
+  resultEl.style.border = '2px solid '+(pass ? '#28a745' : '#dc3545');
+
+  document.getElementById('v-result-icon').textContent = pass ? '✓' : '✗';
+  document.getElementById('v-result-icon').style.color = pass ? '#28a745' : '#dc3545';
+  document.getElementById('v-result-title').textContent = pass ? 'CORRECT — TUC Match' : 'INCORRECT — TUC Mismatch';
+  document.getElementById('v-result-title').style.color = pass ? '#155724' : '#721c24';
+
+  var detail = p.name + ' (' + sku + ')<br>Scanned: <strong style="font-family:'Courier New',monospace">' + scanned + '</strong>';
+  if(!pass) detail += '<br>Expected: <strong style="font-family:'Courier New',monospace">' + expected + '</strong>';
+  document.getElementById('v-result-detail').innerHTML = detail;
+  document.getElementById('v-result-detail').style.color = pass ? '#155724' : '#721c24';
+
+  // Auto-hide after 4 seconds on pass, stay on fail
+  if(pass){
+    clearTimeout(resultEl._hideTimer);
+    resultEl._hideTimer = setTimeout(function(){
+      resetVerify();
+    }, 4000);
+  }
+
+  // Play a sound
+  playBeep(pass);
+}
+
+function playBeep(pass){
+  try{
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = pass ? 880 : 220;
+    osc.type = pass ? 'sine' : 'sawtooth';
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (pass ? 0.4 : 0.6));
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + (pass ? 0.4 : 0.6));
+  }catch(e){}
+}
+
+function resetVerify(){
+  document.getElementById('v-result').style.display = 'none';
+  document.getElementById('v-scan-input').value = '';
+  document.getElementById('v-scan-input').focus();
+}
+
+async function saveVerification(sku, p, scanned, expected, pass){
+  if(!verificationsListId) return;
+  var id = Date.now()+'-'+Math.random().toString(36).substr(2,5);
+  var rec = {
+    id: id,
+    sku: sku,
+    name: p.name,
+    scanned: scanned,
+    expected: expected,
+    pass: pass,
+    by: currentAccount?(currentAccount.name||currentAccount.username):'',
+    ts: new Date().toISOString()
+  };
+  verifyLogs.unshift(rec);
+  renderVerifyLog();
+  try{
+    await graph('POST','/sites/'+siteId+'/lists/'+verificationsListId+'/items',{fields:{
+      Title: sku,
+      SKU: sku,
+      ProductName: p.name,
+      TUCScanned: scanned,
+      TUCExpected: expected,
+      Result: pass ? 'PASS' : 'FAIL',
+      VerifiedBy: currentAccount?(currentAccount.name||currentAccount.username):'',
+      RecordID: id
+    }});
+  }catch(e){ toast('Verification not saved: '+e.message, true); }
+}
+
+async function loadVerifications(){
+  if(!verificationsListId) return;
+  var today = new Date().toISOString().slice(0,10);
+  try{
+    var data = await graph('GET','/sites/'+siteId+'/lists/'+verificationsListId+'/items?$expand=fields&$orderby=createdDateTime desc&$top=200&$select=id,createdDateTime,fields&$filter=fields/Result ne null');
+    verifyLogs = data.value
+      .filter(function(item){ return item.createdDateTime.slice(0,10) === today; })
+      .map(function(item){
+        var f = item.fields;
+        return{id:f.RecordID||item.id,sku:f.SKU||'',name:f.ProductName||'',scanned:f.TUCScanned||'',expected:f.TUCExpected||'',pass:f.Result==='PASS',by:f.VerifiedBy||'',ts:item.createdDateTime};
+      });
+    renderVerifyLog();
+  }catch(e){ toast('Could not load scan log: '+e.message, true); }
+}
+
+function renderVerifyLog(){
+  var body = document.getElementById('v-log-body');
+  var count = document.getElementById('v-log-count');
+  count.textContent = verifyLogs.length;
+  if(!verifyLogs.length){ body.innerHTML='<div class="empty">No scans today</div>'; return; }
+  var html = '<table class="tbl"><thead><tr><th>Time</th><th>SKU</th><th>Product</th><th>Scanned</th><th>Result</th><th>User</th></tr></thead><tbody>';
+  verifyLogs.forEach(function(r){
+    var passStyle = r.pass
+      ? 'color:#155724;background:#d4edda;padding:2px 10px;border-radius:99px;font-weight:600;font-size:12px'
+      : 'color:#721c24;background:#f8d7da;padding:2px 10px;border-radius:99px;font-weight:600;font-size:12px';
+    html += '<tr>';
+    html += '<td>'+new Date(r.ts).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</td>';
+    html += '<td><strong>'+r.sku+'</strong></td>';
+    html += '<td>'+r.name+'</td>';
+    html += '<td class="mono">'+r.scanned+'</td>';
+    html += '<td><span style="'+passStyle+'">'+(r.pass?'PASS':'FAIL')+'</span></td>';
+    html += '<td style="color:#aaa">'+r.by+'</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
 }
 
 // ── Code 128C barcode data ────────────────────────────────────────────────────
